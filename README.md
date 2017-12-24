@@ -1,5 +1,7 @@
 # pyxxnet_project
-This is a pure python implementation of network services development framework.
+#   Hi,This is a pure python implementation of network services development framework.
+#   A clever person solves a problem. A wise person avoids it
+#   Please call Me programming devil.
 
         这是一个纯Python实现的网络服务框架，支持多进程运行，通过消息队列把任务散发到多个进程做执行，
     内置对网络收发指标，任务执行情况的在线统计，适合用以做一些内部的微服务。
