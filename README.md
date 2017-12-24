@@ -23,7 +23,7 @@ This is a pure python implementation of network services development framework.
 
         python my_test.py 就开启了一个测试客户端，快来尝试下这个项目吧！
 
-        我更期望您直接与我联系，一起探讨有趣的python编程。
+        我更期望您直接与我联系，一起探讨有趣的python编程。联系的QQ 406878851
 
 
 
