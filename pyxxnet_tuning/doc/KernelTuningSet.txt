@@ -1,0 +1,264 @@
+系统内核调优<高性能的服务器>
+Author:zhangtao
+这里以按照‘KernelTuning10W.txt’为例演示：
+
+1.最大文件描述数
+    1.1用户级文件描述数限制
+        GET:    ulimit -n
+        SET:    ulimit -SHn 102400
+                or
+                vi /etc/security/limits.conf
+                按照规则 #<domain>      <type> <item>         <value>
+                在文件尾部添加:
+                *   hard    nofile  102400
+                *   soft    nofile  102400
+
+前阵子，我要用到使Linux的文件打开数为65534个，而且需要永久生效，于是将配置写到了：
+vim /etc/security/limits.conf
+* soft nofile 65534
+* hard nofile 65534
+重新登录后limit.conf的配置都不生效，后来发现，ubuntu有个bug，root用户必须注明用户
+root soft nofile 65534
+root hard nofile 65534
+也就是写成上面那样，重新登录，不需要重启，ulimit -a可以看到文件打开数已经是65534了，这就是limits.conf不生效的原因，注意ubuntu一定不能直接用*
+
+
+ Ubuntu 12 ulimit 系统最大打开文件个数 设置
+ http://blog.csdn.net/kimsoft/article/details/8024216
+
+第三步：配置/etc/profile
+最后一行加上
+ulimit -SHn 40960
+
+重启，ulimit -n 验证，显示40960就没问题了
+
+
+更新：2012/9/29：
+CentOS 6.3上，只要修改/etc/security/limits.conf，重新登录就OK了。
+Ubuntu Server 12.04.1上，修改/etc/security/limits.conf，重登录重启不管用，改/etc/pam.d/common-session, su，重登录重启不管用，非要改/etc/profile?
+看来两者是有差异的？还是我测试不到位？
+
+
+
+    1.2系统级文件描述数限制
+        GET:   cat /proc/sys/fs/file-max
+        SET:   echo 3241084 > /proc/sys/fs/file-max
+               or
+               sysctl -w fs.file-max=3241084
+               or
+               vi /etc/sysctl.conf
+               在文件尾部添加:
+               fs.file-max=3241084
+               然后执行sysctl -p 使生效。
+
+             If  you  increase  /proc/sys/fs/file-max, be sure to increase /proc/sys/fs/inode-max to 3-4 times the
+              new value of /proc/sys/fs/file-max, or you will run out of inodes.
+
+              对于2.2的内核， 还需要考虑inode-max， 一般inode-max设置为file-max的4倍。 对于2.4及以后的内核， 没有inode-max这个文件了。
+
+2.调整内核参数
+参考 ： <Linux内核Socket参数调优> https://my.oschina.net/guol/blog/115837
+
+    2.1 Linux的内核模块，都在/etc/sys文件系统下以文件名标识内存参数，以文件内容标识参数的值的形式，提供给
+        用户调整模块的属性和行为。
+        查看所有的内核参数： sysctl -a
+
+       cat /proc/sys/fs/epoll/max_user_watches
+       5031034
+       一个用户能往epoll内核注册的事件总量，在32位系统一个事件大概消耗90字节，在64位系统一个事件消耗160字节，该参数限制了epoll
+       使用的内核内存总量。
+
+    2.2 /proc/sys/net/core/somaxconn
+        指定listen监听队列里，能够建立连接从而进入ESTABLISHED的socket的最大数目。
+
+         使用该端口的程序中listen()函数.
+            关于somaxconn参数:
+            定义了系统中每一个端口最大的监听队列的长度,这是个全局的参数,默认值为1024,
+            大多数环境这个值建议增加到 1024 或者更多。
+
+    2.3 /proc/sys/net/ipv4/tcp_max_syn_backlog
+       /proc/sys/net/ipv4/tcp_max_syn_backlog    对应net.ipv4.tcp_max_syn_backlog
+    每一个连接请求(SYN报文)都需要排队，直至本地服务器接收，该变量就是控制每个端口的 TCP SYN队列长度的。如果连接请求多余该值，则请求会被丢弃。
+
+    2.4 cat /proc/sys/net/ipv4/tcp_max_syn_backlog
+
+
+
+
+可调优的内核变量存在两种主要接口：sysctl命令和/proc文件系统，proc中与进程无关的所有信息都被移植到sysfs中。IPV4协议栈的sysctl参数主要是sysctl.net.core、sysctl.net.ipv4，对应的/proc文件系统是/proc/sys/net/ipv4和/proc/sys/net/core。只有内核在编译时包含了特定的属性，该参数才会出现在内核中。
+
+对于内核参数应该谨慎调节，这些参数通常会影响到系统的整体性能。内核在启动时会根据系统的资源情况来初始化特定的变量，这种初始化的调节一般会满足通常的性能需求。
+
+应用程序通过socket系统调用和远程主机进行通讯，每一个socket都有一个读写缓冲区。读缓冲区保存了远程主机发送过来的数据，如果缓冲区已满，则数据会被丢弃，写缓冲期保存了要发送到远程主机的数据，如果写缓冲区已慢，则系统的应用程序在写入数据时会阻塞。可知，缓冲区是有大小的。
+
+socket缓冲区默认大小：
+/proc/sys/net/core/rmem_default     对应net.core.rmem_default
+/proc/sys/net/core/wmem_default     对应net.core.wmem_default
+    上面是各种类型socket的默认读写缓冲区大小，然而对于特定类型的socket则可以设置独立的值覆盖默认值大小。例如tcp类型的socket就可以用/proc/sys/net/ipv4/tcp_rmem和tcp_wmem来覆盖。
+
+socket缓冲区最大值：
+/proc/sys/net/core/rmem_max        对应net.core.rmem_max
+/proc/sys/net/core/wmem_max        对应net.core.wmem_max
+
+/proc/sys/net/core/netdev_max_backlog    对应 net.core.netdev_max_backlog
+    该参数定义了当接口收到包的速率大于内核处理包的速率时，设备的输入队列中的最大报文数。
+
+/proc/sys/net/core/somaxconn        对应 net.core.somaxconn
+    通过listen系统调用可以指定的最大accept队列backlog，当排队的请求连接大于该值时，后续进来的请求连接会被丢弃。
+
+/proc/sys/net/core/optmem_max          对应 net.core.optmem_max
+    每个socket的副缓冲区大小。
+
+TCP/IPV4内核参数：
+    在创建socket的时候会指定socke协议和地址类型。TCP socket缓冲区大小是他自己控制而不是由core内核缓冲区控制。
+/proc/sys/net/ipv4/tcp_rmem     对应net.ipv4.tcp_rmem
+/proc/sys/net/ipv4/tcp_wmem     对应net.ipv4.tcp_wmem
+    以上是TCP socket的读写缓冲区的设置，每一项里面都有三个值，第一个值是缓冲区最小值，中间值是缓冲区的默认值，最后一个是缓冲区的最大值，虽然缓冲区的值不受core缓冲区的值的限制，但是缓冲区的最大值仍旧受限于core的最大值。
+
+/proc/sys/net/ipv4/tcp_mem
+    该内核参数也是包括三个值，用来定义内存管理的范围，第一个值的意思是当page数低于该值时，TCP并不认为他为内存压力，第二个值是进入内存的压力区域时所达到的页数，第三个值是所有TCP sockets所允许使用的最大page数，超过该值后，会丢弃后续报文。page是以页面为单位的，为系统中socket全局分配的内存容量
+
+
+
+
+/proc/sys/net/ipv4/tcp_window_scaling      对应net.ipv4.tcp_window_scaling
+    管理TCP的窗口缩放特性，因为在tcp头部中声明接收缓冲区的长度为26位，因此窗口不能大于64K，如果大于64K，就要打开窗口缩放。
+
+/proc/sys/net/ipv4/tcp_sack    对应net.ipv4.tcp_sack
+    管理TCP的选择性应答，允许接收端向发送端传递关于字节流中丢失的序列号，减少了段丢失时需要重传的段数目，当段丢失频繁时，sack是很有益的。
+
+/proc/sys/net/ipv4/tcp_dsack   对应net.ipv4.tcp_dsack
+    是对sack的改进，能够检测不必要的重传。
+
+/proc/sys/net/ipv4/tcp_fack    对应net.ipv4.tcp_fack
+    对sack协议加以完善，改进tcp的拥塞控制机制。
+
+TCP的连接管理：
+/proc/sys/net/ipv4/tcp_max_syn_backlog    对应net.ipv4.tcp_max_syn_backlog
+    每一个连接请求(SYN报文)都需要排队，直至本地服务器接收，该变量就是控制每个端口的 TCP SYN队列长度的。如果连接请求多余该值，则请求会被丢弃。
+
+/proc/sys/net/ipv4/tcp_syn_retries    对应net.ipv4.tcp_syn_retries
+    控制内核向某个输入的SYN/ACK段重新发送相应的次数，低值可以更好的检测到远程主机的连接失败。可以修改为3
+
+/proc/sys/net/ipv4/tcp_retries1    对应net.ipv4.tcp_retries1
+    该变量设置放弃回应一个tcp连接请求前，需要进行多少次重试。
+
+/proc/sys/net/ipv4/tcp_retries2    对应net.ipv4.tcp_retries2
+    控制内核向已经建立连接的远程主机重新发送数据的次数，低值可以更早的检测到与远程主机失效的连接，因此服务器可以更快的释放该连接，可以修改为5
+
+TCP连接的保持：
+/proc/sys/net/ipv4/tcp_keepalive_time        对应net.ipv4.tcp_keepalive_time
+    如果在该参数指定的秒数内连接始终处于空闲状态，则内核向客户端发起对该主机的探测
+
+/proc/sys/net/ipv4/tcp_keepalive_intvl    对应net.ipv4.tcp_keepalive_intvl
+    该参数以秒为单位，规定内核向远程主机发送探测指针的时间间隔
+
+/proc/sys/net/ipv4/tcp_keepalive_probes   对应net.ipv4.tcp_keepalive_probes
+    该参数规定内核为了检测远程主机的存活而发送的探测指针的数量，如果探测指针的数量已经使用完毕仍旧没有得到客户端的响应，即断定客户端不可达，关闭与该客户端的连接，释放相关资源。
+
+/proc/sys/net/ipv4/ip_local_port_range   对应net.ipv4.ip_local_port_range
+    规定了tcp/udp可用的本地端口的范围。
+
+TCP连接的回收：
+/proc/sys/net/ipv4/tcp_max_tw_buckets     对应net.ipv4.tcp_max_tw_buckets
+   该参数设置系统的TIME_WAIT的数量，如果超过默认值则会被立即清除。
+
+/proc/sys/net/ipv4/tcp_tw_reuse           对应net.ipv4.tcp_tw_reuse
+   该参数设置TIME_WAIT重用，可以让处于TIME_WAIT的连接用于新的tcp连接
+
+/proc/sys/net/ipv4/tcp_tw_recycle         对应net.ipv4.tcp_tw_recycle
+   该参数设置tcp连接中TIME_WAIT的快速回收。
+
+/proc/sys/net/ipv4/tcp_fin_timeout       对应net.ipv4.tcp_fin_timeout
+   设置TIME_WAIT2进入CLOSED的等待时间。
+
+/proc/sys/net/ipv4/route/max_size
+   内核所允许的最大路由数目。
+
+/proc/sys/net/ipv4/ip_forward
+   接口间转发报文
+
+/proc/sys/net/ipv4/ip_default_ttl
+   报文可以经过的最大跳数
+
+虚拟内存参数：
+/proc/sys/vm/
+
+
+   在linux kernel 2.6.25之前通过ulimit -n(setrlimit(RLIMIT_NOFILE))设置每个进程的最大打开文件句柄数不能超过NR_OPEN(1024*1024),也就是100多w(除非重新编译内核)，而在25之后，内核导出了一个sys接口可以修改这个最大值/proc/sys/fs/nr_open。shell里不能直接更改，是因为登录的时候pam已经从limits.conf中设置了上限，ulimit命令只能在低于上限的范围内发挥了。
+
+Linux中查看socket状态：
+cat /proc/net/sockstat #（这个是ipv4的）
+
+sockets: used 137
+TCP: inuse 49 orphan 0 tw 3272 alloc 52 mem 46
+UDP: inuse 1 mem 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+说明：
+sockets: used：已使用的所有协议套接字总量
+TCP: inuse：正在使用（正在侦听）的TCP套接字数量。其值≤ netstat –lnt | grep ^tcp | wc –l
+TCP: orphan：无主（不属于任何进程）的TCP连接数（无用、待销毁的TCP socket数）
+TCP: tw：等待关闭的TCP连接数。其值等于netstat –ant | grep TIME_WAIT | wc –l
+TCP：alloc(allocated)：已分配（已建立、已申请到sk_buff）的TCP套接字数量。其值等于netstat –ant | grep ^tcp | wc –l
+TCP：mem：套接字缓冲区使用量（单位不详。用scp实测，速度在4803.9kB/s时：其值=11，netstat –ant 中相应的22端口的Recv-Q＝0，Send-Q≈400）
+UDP：inuse：正在使用的UDP套接字数量
+RAW：
+FRAG：使用的IP段数量
+
+
+
+
+
+
+
+关于Linux中TCP和UDP协议的发送和接收缓冲区
+1. tcp 收发缓冲区默认值
+[root@qljt core]# cat /proc/sys/net/ipv4/tcp_rmem
+4096 87380 4161536（TCP接收缓冲区）
+
+cat /proc/sys/net/ipv4/tcp_wmem
+4096 16384 4161536（TCP发送缓冲区）
+
+2. tcp 或udp收发缓冲区最大值
+[root@qljt core]# cat /proc/sys/net/core/rmem_max 接收
+
+[root@qljt core]# cat /proc/sys/net/core/wmem_max 发送
+
+3. udp收发缓冲区默认值
+
+[root@qljt core]# cat /proc/sys/net/core/rmem_default
+111616：udp接收缓冲区的默认值
+
+[root@qljt core]# cat /proc/sys/net/core/wmem_default
+111616：udp发送缓冲区的默认值
+
+可以通过setsockopt()和getsockopt()函数设置和获取相应缓冲区的大小；
+
+复制代码
+譬如：
+int iSock = -1;
+iSock = socket(AF_INET, SOCK_DGRAM, 0);
+int iRecvLen = 300*1024;
+int iRecvLen_2 = 0;
+int iOptlen = 4;
+int iRet = -1, iRet_2 = -1;
+iRet = setsockopt(iSock, SOL_SOCKET, SO_RCVBUF, &iRecvLen, 4);
+iRet_2 = getsockopt(iSock, SOL_SOCKET, SO_RCVBUF, &iRecvLen_2, &iOptlen);
+printf("RecvLen 2 is %d[%d:%d].\n", iRecvLen_2, iRet, iRet_2);
+复制代码
+因为我使用的Linux版本为：Fedora release 9 (Sulphur)，
+其默认的udp缓冲区的最大值为 110592 Bytes，因此，当通过setsockopt()函数想将其设置为300KB时
+，超过了最大上限的2倍，因此用getsockopt()函数获取实际设置的缓冲区长度为221184Bytes（110592*2）。
+
+版权声明：
+
+
+
+
+
+
+
+
+
+

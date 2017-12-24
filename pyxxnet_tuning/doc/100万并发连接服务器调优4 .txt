@@ -1,0 +1,157 @@
+                             100万并发连接服务器笔记之1M并发连接目标达成
+
+参考：http://blog.csdn.net/educast/article/details/23053509
+测试程序也很简陋，一个C语言所写服务器程序，没有任何业务存在，收到请求后发送一些头部，不断开连接
+测试端程序也是使用C语言所写，发送请求，然后等待接收数据，仅此而已
+服务器端/测试端内存都受限(8G不够使用)，要想完成1024K的目标，需要放弃一些东西，诸如业务不是那么完整
+一台分配10G内存Centos服务器，两台分配6G内存Centos测试端，两台2G内存Centos测试端
+假如热心的您可以提供丰富的服务器资源，那就再好不过了。
+理论上200万的并发连接（IO密集型），加上业务，40G-50G的内存大概能够保证
+
+
+第四个遇到的问题：tcp_mem
+
+在服务端，连接达到一定数量，诸如50W时，有些隐藏很深的问题，就不断的抛出来。 通过查看dmesg命令查看，发现大量TCP: too many of orphaned sockets错误，也很正常，
+下面到了需要调整tcp socket参数的时候了。
+
+第一个需要调整的是tcp_rmem，即TCP读取缓冲区，单位为字节，查看默认值
+
+cat /proc/sys/net/ipv4/tcp_rmem
+4096 87380 4161536
+默认值为87380 byte ≈ 86K，最小为4096 byte=4K，最大值为4064K≈4M。
+
+第二个需要调整的是tcp_wmem，发送缓冲区，单位是字节，默认值
+
+cat /proc/sys/net/ipv4/tcp_wmem
+4096 16384 4161536
+解释同上
+
+第三个需要调整的tcp_mem，调整TCP的内存大小，其单位是页，1页等于4096字节。系统默认值：
+
+cat /proc/sys/net/ipv4/tcp_mem
+932448 1243264 1864896
+tcp_mem(3个INTEGER变量)：low, pressure, high
+
+low：当TCP使用了低于该值的内存页面数时，TCP不会考虑释放内存。
+pressure：当TCP使用了超过该值的内存页面数量时，TCP试图稳定其内存使用，进入pressure模式，当内存消耗低于low值时则退出pressure状态。
+high：允许所有tcp sockets用于排队缓冲数据报的页面量，当内存占用超过此值，系统拒绝分配socket，后台日志输出“TCP: too many of orphaned sockets”。
+一般情况下这些值是在系统启动时根据系统内存数量计算得到的。 根据当前tcp_mem最大内存页面数是1864896，当内存为(1864896*4)/1024K=7284.75M时，系统将无法为新的socket连接分配内存，即TCP连接将被拒绝。
+
+实际测试环境中，据观察大概在99万个连接左右的时候(零头不算)，进程被杀死
+，触发out of socket memory错误（dmesg命令查看获得）。每一个连接大致占用7.5K内存（下面给出计算方式），大致可算的此时内存占用情况（990000 * 7.5 / 1024K = 7251M)。
+
+这样和tcp_mem最大页面值数量比较吻合，因此此值也需要修改。
+
+三个TCP调整语句为:
+
+echo "net.ipv4.tcp_mem = 786432 2097152 3145728">> /etc/sysctl.conf
+echo "net.ipv4.tcp_rmem = 4096 4096 16777216">> /etc/sysctl.conf
+echo "net.ipv4.tcp_wmem = 4096 4096 16777216">> /etc/sysctl.conf
+备注： 为了节省内存，设置tcp读、写缓冲区都为4K大小，tcp_mem三个值分别为3G 8G 12G，tcp_rmem和tcp_wmem最大值是16M。
+
+目标达成
+
+经过若干次的尝试，最终达到目标，1024000个持久连接。1024000数字是怎么得来的呢，
+两台物理机器各自发出64000个请求，两个配置为6G左右的centos测试端机器(绑定7个桥接或NAT连接)各自发出640007 = 448000。
+也就是 1024000 = (64000) + (64000) + (640007) + (64000*7),
+ 共使用了16个网卡（物理网卡+虚拟网卡）。
+终端输出
+
+......
+online user 1023990
+online user 1023991
+online user 1023992
+online user 1023993
+online user 1023994
+online user 1023995
+online user 1023996
+online user 1023997
+online user 1023998
+online user 1023999
+online user 1024000
+在线用户目标达到1024000个！
+
+服务器状态信息
+
+服务启动时内存占用：
+
+                 total       used       free     shared    buffers     cached
+     Mem:         10442        271      10171          0         22         78
+     -/+ buffers/cache:        171      10271
+     Swap:         8127          0       8127
+
+系统达到1024000个连接后的内存情况（执行三次 free -m 命令，获取三次结果）：
+
+                 total       used       free     shared    buffers     cached
+     Mem:         10442       7781       2661          0         22         78
+     -/+ buffers/cache:       7680       2762
+     Swap:         8127          0       8127
+
+                  total       used       free     shared    buffers     cached
+     Mem:         10442       7793       2649          0         22         78
+     -/+ buffers/cache:       7692       2750
+     Swap:         8127          0       8127
+
+                  total       used       free     shared    buffers     cached
+     Mem:         10442       7804       2638          0         22         79
+     -/+ buffers/cache:       7702       2740
+     Swap:         8127          0       8127
+
+这三次内存使用分别是7680,7692,7702，这次不取平均值，取一个中等偏上的值，定为7701M。那么程序接收1024000个连接，
+共消耗了 7701M-171M = 7530M内存， 7530*1024K / 1024000 = 7.53K， 每一个连接消耗内存在为7.5K左右，这和在连接达到512000时所计算较为吻合。
+虚拟机运行Centos内存占用，不太稳定，但一般相差不大，以上数值，仅供参考。
+
+执行top -p 某刻输出信息：
+
+    top - 17:23:17 up 18 min,  4 users,  load average: 0.33, 0.12, 0.11
+     Tasks:   1 total,   1 running,   0 sleeping,   0 stopped,   0 zombie
+     Cpu(s):  0.2%us,  6.3%sy,  0.0%ni, 80.2%id,  0.0%wa,  4.5%hi,  8.8%si,  0.0%st
+     Mem:  10693580k total,  6479980k used,  4213600k free,    22916k buffers
+     Swap:  8323056k total,        0k used,  8323056k free,    80360k cached
+
+       PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND
+      2924 yongboy   20   0 82776  74m  508 R 51.3  0.7   3:53.95 server
+执行vmstate：
+
+vmstat
+procs -----------memory---------- ---swap-- -----io---- --system-- -----cpu-----
+ r b swpd free buff cache si so bi bo in cs us sy id wa st
+ 0 0 0 2725572 23008 80360 0 0 21 2 1012 894 0 9 89 2 0
+获取当前socket连接状态统计信息：
+
+cat /proc/net/sockstat
+sockets: used 1024380
+TCP: inuse 1024009 orphan 0 tw 0 alloc 1024014 mem 2
+UDP: inuse 11 mem 1
+UDPLITE: inuse 0
+RAW: inuse 0
+FRAG: inuse 0 memory 0
+获取当前系统打开的文件句柄：
+
+sysctl -a | grep file
+fs.file-nr = 1025216 0 1048576
+fs.file-max = 1048576
+此时任何类似于下面查询操作都是一个慢，等待若干时间还不见得执行完毕。
+
+netstat -nat|grep -i "8000"|grep ESTABLISHED|wc -l
+netstat -n | grep -i "8000" | awk '/^tcp/ {++S[$NF]} END {for(a in S) print a, S[a]}'
+以上两个命令在二三十分钟过去了，还未执行完毕，只好停止。
+
+小结
+
+本次从头到尾的测试，所需要有的linux系统需要调整的参数也就是那么几个，汇总一下：
+
+     echo "* - nofile 1048576" >> /etc/security/limits.conf
+
+     echo "fs.file-max = 1048576" >> /etc/sysctl.conf
+     echo "net.ipv4.ip_local_port_range = 1024 65535" >> /etc/sysctl.conf
+
+     echo "net.ipv4.tcp_mem = 786432 2097152 3145728" >> /etc/sysctl.conf
+     echo "net.ipv4.tcp_rmem = 4096 4096 16777216" >> /etc/sysctl.conf
+     echo "net.ipv4.tcp_wmem = 4096 4096 16777216" >> /etc/sysctl.conf
+
+其它没有调整的参数，仅仅因为它们暂时对本次测试没有带来什么影响，实际环境中需要结合需要调整类似于SO_KEEPALIVE、tcpmax_orphans等大量参数。
+
+
+本文代表一次实践，不足之处，欢迎批评指正。
+

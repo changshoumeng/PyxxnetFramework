@@ -1,0 +1,312 @@
+从man手册中，得到ET和LT的具体描述如下
+EPOLL事件有两种模型：
+Edge Triggered(ET)       //高速工作方式，错误率比较大，只支持no_block socket (非阻塞socket)
+LevelTriggered(LT)       //缺省工作方式，即默认的工作方式,支持blocksocket和no_blocksocket，错误率比较小。
+
+
+Edge Triggered工作模式：
+  i   基于非阻塞文件句柄
+  ii  只有当read(2)或者write(2)返回EAGAIN时(认为读完)才需要挂起，等待。但这并不是说每次read()时都需要循环读，
+  直到读到产生一个EAGAIN才认为此次事件处理完成，当read()返回的读到的数据长度小于请求的数据长度时(即小于sizeof(buf))，
+  就可以确定此时缓冲中已没有数据了，也就可以认为此事读事件已处理完成。
+
+Level Triggered工作模式         (默认的工作方式)
+     相反的，以LT方式调用epoll接口的时候，它就相当于一个速度比较快的poll(2)，并且无论后面的数据是否被使用，
+     因此他们具有同样的职能。因为即使使用ET模式的epoll，在收到多个chunk的数据的时候仍然会产生多个事件。调用者可以设定EPOLLONESHOT标志，
+     在epoll_wait(2)收到事件后epoll会与事件关联的文件句柄从epoll描述符中禁止掉。因此当EPOLLONESHOT设定后，使用带有EPOLL_CTL_MOD标志
+     的epoll_ctl(2)处理文件句柄就成为调用者必须作的事情。
+
+
+eventmask
+参考：https://docs.python.org/2/library/select.html
+Constant	Meaning
+EPOLLIN	Available for read
+EPOLLOUT	Available for write
+EPOLLPRI	Urgent data for read
+EPOLLERR	Error condition happened on the assoc. fd
+EPOLLHUP	Hang up happened on the assoc. fd
+EPOLLET	Set Edge Trigger behavior, the default is Level Trigger behavior
+EPOLLONESHOT	Set one-shot behavior. After one event is pulled out, the fd is internally disabled
+EPOLLRDNORM	Equivalent to EPOLLIN
+EPOLLRDBAND	Priority data band can be read.
+EPOLLWRNORM	Equivalent to EPOLLOUT
+EPOLLWRBAND	Priority data may be written.
+EPOLLMSG	Ignored.
+
+测试发现1：
+
+建立一个nonblocking socket ,然后self._epoll_loop.register(connector_fd, select.EPOLLOUT)
+执行connect一个无效的地址，发现self._epoll_loop.poll返回的事件解析出来是：
+fileno:4 events(28) contains: 4:select.EPOLLOUT 8:select.EPOLLERR 16:select.EPOLLHUP
+
+这说明：8:select.EPOLLERR 16:select.EPOLLHUP是默认就关注的事件。
+
+
+如果关注的事件是register(connector_fd, select.EPOLLOUT|select.EPOLLIN)
+connect failed 时返回的事件是
+fileno:4 events(29) contains: 1:select.EPOLLIN 4:select.EPOLLOUT 8:select.EPOLLERR 16:select.EPOLLHUP
+
+这说明：如果connect 失败，一定会返回8:select.EPOLLERR 16:select.EPOLLHUP，同时还会返回所关注的select.EPOLLOUT|select.EPOLLIN.
+
+但是不是其他失败的情况下也这样返回呢？
+
+连接成功时，返回的事件是
+fileno:4 events(4) contains: 4:select.EPOLLOUT
+并没有返回事件select.EPOLLIN
+这说明：select.EPOLLOUT才是判断连接是否成功的关键事件。
+
+
+
+
+
+测试发现2：
+server_socket,client_socket都 注册为
+self._epoll_loop.register(acceptor_fd, select.EPOLLET|select.EPOLLOUT|select.EPOLLIN)
+
+当server_socket只send，client_socket只recv时，发现
+server的返回事件是：epoll什么都不返回
+
+client的返回事件是：fileno:4 events(5) contains: 1:select.EPOLLIN 4:select.EPOLLOUT
+
+这难道说明只要返回select.EPOLLIN，就一定会也会同时返回select.EPOLLOUT，
+如果不返回select.EPOLLIN，只有等到send到资源不可用时（俗称写穿了），才会得到select.EPOLLOUT的返回。
+
+实际测试的现象是：
+只要返回select.EPOLLIN，同时也会返回select.EPOLLOUT
+当server（只做send）一次发送的数据量大于2619320 (约等于2.5M)时，发现并没有出现 EAGAIN or EWOULDBLOCK或其他异常，只是开始返回select.EPOLLOUT事件了；
+当client（只做recv）一次接收到的数据量大于1309660（约等于1.2M）时，发现出现EAGAIN or EWOULDBLOCK异常，同时开始出现 select.EPOLLOUT事件
+
+
+如果server只做send,而client不做recv，那么server累计发送字节量达到3566592（~3.4M）时，遇到EAGAIN or EWOULDBLOCK异常;
+    此时client才做一次recv，那么server就收到了一次 select.EPOLLOUT事件
+
+如果server只做send,而client不做recv，那么server累计发送字节量达到3566592（~3.4M）时，遇到EAGAIN or EWOULDBLOCK异常;
+    此时cliet做一次send，那么server就收到了一次 select.EPOLLIN 事件，并且没有返回 EPOLLOUT事件。
+
+
+测试发现3：
+在做对LINUX服务器进行并发压力测试的时候，当并发数超过1024时，系统提示：Too many open files
+
+测试发现4：
+server端对listensocket做然后listen(4096)
+ self._epoll_loop.register(listen_socket.fileno(), select.EPOLLIN)
+client端开始发起4000个tcp长连接，原以为listensocket被观察为EPOLLIN，默认是EPOLLLT触发机制，收到一个连接
+就会触发一次EPOLLIN，应该可以收到4000个EPOLLIN；
+但是
+测试发现server端总是只能accept到2000多个连接。
+
+原因是：cat /proc/sys/net/core/somaxconn 为128，connect太快，而accept太慢，并发连接超过128，就会出现服务端
+这边连接处于SYN_RECV 半连接状态进而转入FIN_WAIT > TIME_WAIT,同时client段居然没有连接失败的事件通知；
+
+
+测试发现5:
+_buildConnection caught socketeror addr:('10.10.2.220', 1234) id:1 msg:[Errno 99] Cannot assign requested address
+
+此时：
+TIME_WAIT统计超过29999
+
+今天用php连接最近新开发的一个服务做测试，发现命令行打印出：Cannot assign requested address
+网上找了下原因，大致上是由于客户端频繁的连服务器，由于每次连接都在很短的时间内结束，导致很多的TIME_WAIT，以至于用光了可用的端口号，
+所以新的连接没办法绑定端口，即“Cannot assign requested address”。是客户端的问题不是服务器端的问题。通过netstat，的确看到很多TIME_WAIT状态的连接。
+
+client端频繁建立连接，而端口释放较慢，导致建立新连接时无可用端口。
+网上的解决方法：
+
+执行命令修改如下2个内核参数 （需要root权限）
+sysctl -w net.ipv4.tcp_timestamps=1  开启对于TCP时间戳的支持,若该项设置为0，则下面一项设置不起作用
+sysctl -w net.ipv4.tcp_tw_recycle=1  表示开启TCP连接中TIME-WAIT sockets的快速回收
+
+
+
+>>reportStatus>> pendings:9994 conns1:60006 conn_succ_count:60006 max_events:1023,maxfileno:60009 lastfileno:60009
+_Connector::onConnectEvent(False) addr:('10.10.2.220', 1234) sessionId:64512
+FAILFAILFAILFAILFAILFAILFAILFAILFAILFAILFAILFAILFAILFAILFAIL
+_buildConnection caught socketeror addr:('10.10.2.220', 1234) id:64512 msg:[Errno 99] Cannot assign requested address
+
+TCP连接状态统计：
+ESTABLISHED 129022
+LISTEN 1
+
+测试前：
+root@ubuntu:/home/dlserver/zhangtao/fs/test/MyEye/Server# free -m
+             total       used       free     shared    buffers     cached
+Mem:         24011       2520      21490          0          5        281
+-/+ buffers/cache:       2234      21777
+Swap:        32668          3      32665
+
+
+测试后：
+root@ubuntu:~# free -m
+             total       used       free     shared    buffers     cached
+Mem:         24011       3220      20790          0          7        344
+-/+ buffers/cache:       2868      21142
+Swap:        32668          3      32665
+
+
+>>> (3220-2520)*1024/129022
+5
+
+每条TCP连接平均使用了5K的内存
+
+
+
+epoll_list = self._epoll_loop.poll(self._epoll_time_out)
+epoll_list的长度目前观察的最大值是1023
+
+
+
+
+total reqcount:1182712
+total rspcount:1182711
+total rspokcount:0
+total sendonceok:0
+total recvonceok:0
+total use_ms:24000
+total sendbytes:1211097088
+total recvbytes:1211096064
+averge tps:49279.6
+max tps:53127.0
+averge sendspeed:48MB/s
+averge recvspeed:48MB/s
+
+CPU 网卡都吃满
+
+
+
+
+
+
+
+epoll的EPOLLIN和EPOLLOU为什么不能同时关联
+http://laokaddk.blog.51cto.com/368606/791945/
+
+
+
+(2)epoll的优点
+<1>支持一个进程打开大数目的socket描述符(FD)
+select 最不能忍受的是一个进程所打开的FD是有一定限制的，由FD_SETSIZE设置，默认值是2048。对于那些需要支持的上万连接数目的IM服务器来说显 然太少了。
+这时候你一是可以选择修改这个宏然后重新编译内核，不过资料也同时指出这样会带来网络效率的下降，二是可以选择多进程的解决方案(传统的 Apache方案)，
+不过虽然linux上面创建进程的代价比较小，但仍旧是不可忽视的，加上进程间数据同步远比不上线程间同步的高效，所以也不是一种完 美的方案。不过 epoll则
+没有这个限制，它所支持的FD上限是最大可以打开文件的数目，这个数字一般远大于2048,举个例子,在1GB内存的机器上大约是10万左 右，具体数目可以
+cat /proc/sys/fs/file-max 察看,一般来说这个数目和系统内存关系很大。
+
+<2>IO效率不随FD数目增加而线性下降
+传 统的select/poll另一个致命弱点就是当你拥有一个很大的socket集合，不过由于网络延时，任一时间只有部分的socket是"活跃"的，但 是 select/poll
+每次调用都会线性扫描全部的集合，导致效率呈现线性下降。但是epoll不存在这个问题，它只会对"活跃"的socket进行操 作 ---这是因为在内核实现中
+epoll是根据每个fd上面的callback函数实现的。那么，只有"活跃"的socket才会主动的去调用 callback函数，其他idle状态socket则不会，在这点上，
+epoll实现了一个"伪"AIO，因为这时候推动力在os内核。在一些 benchmark中，如果所有的socket基本上都是活跃的---比如一个高速LAN环境，epoll并
+不比select/poll有什么效率，相 反，如果过多使用epoll_ctl,效率相比还有稍微的下降。但是一旦使用idle connections模拟WAN环境,epoll的效率就远
+在select/poll之上了。
+
+<3>使用mmap加速内核与用户空间的消息传递。
+这 点实际上涉及到epoll的具体实现了。无论是select,poll还是epoll都需要内核把FD消息通知给用户空间，如何避免不必要的内存拷贝就很 重要，
+在这点上，epoll是通过内核于用户空间mmap同一块内存实现的。而如果你想我一样从2.5内核就关注epoll的话，一定不会忘记手工 mmap这一步的。
+
+<4>内核微调
+这一点其实不算epoll的优点了，而是整个linux平台的优点。也许 你可以怀疑linux平台，但是你无法回避linux平台赋予你微调内核的能力。比如
+，内核TCP/IP协议栈使用内存池管理sk_buff结构，那么可 以在运行时期动态调整这个内存pool(skb_head_pool)的大小--- 通过echo XXXX>/proc/sys/net/core/hot_list_length完成。
+再比如listen函数的第2个参数(TCP完成3次握手 的数据包队列长度)，也可以根据你平台内存大小动态调整。更甚至在一个数据包面数目巨大但同时每个数据包本身大小
+却很小的特殊系统上尝试最新的NAPI网 卡驱动架构。
+
+
+
+为什么对同一个 FD 要进行 EPOLLIN 和 EPOLLOUT 之间的切换，同时设置 EPOLLIN | EPOLLOUT 不可以吗？
+unexpected extra pollout events from epoll
+On Sun, 26 Oct 2008, Paul P wrote:
+
+The way epoll works, is by hooking into the existing kernel poll
+subsystem. It hooks into the poll wakeups, via callback, and it that way
+it knows that "something" is changed. Then it reads the status of a file
+via f_op->poll() to know the status.
+What happens is that, /* 答案1 */ if you listen for EPOLLIN|EPOLLOUT, when a packet
+arrives the callback hook is hit, and the file is put into a maybe-ready
+list. Maybe-ready because at the time of the callback, epoll has no clue
+of what happened.
+After that, via epoll_wait(), f_op->poll() is called to get the status
+of the file, and since POLLIN|POLLOUT is returned (and since you're
+listening for EPOLLIN|EPOLLOUT), that gets reported back to you. The
+POLLOUT event, by meaning a buffer-full->buffer-avail transition, did
+not really happen, but since POLLOUT is true, that gets reported back
+too.
+
+Ok, so make sure I understand you correctly, you're saying that
+currently the kernel doesn't have awareness of the difference between
+EPOLLIN and EPOLLOUT events because at the time of the event, both
+EPOLLIN/EPOLLOUT are returned from the kernel and that at least for the
+near term that's not going to change. At some point, we can expect the
+EPOLLOUT to give the correct event, but not till later than .28.
+
+The kernel knows the difference between EPOLLIN and EPOLLOUT, of course.
+At the moment though, such condition is not reported during wakeups, and
+this is what is going to be changing.
+
+通过上面的对话知道，原因就是如果同时设置 EPOLLIN 和 EPOLLOUT ，当事件发生时，EPOLLIN 和 EPOLLOUT 都会被返回。
+
+/* 答案2 */ The best way to do it ATM, is to wait for POLLOUT only when
+really needed.
+
+I'm a little unclear how to do this. If I set the epoll_wait call to
+wait for just epollin events, that's fine. But when I send a large
+buffer of data and use epoll_ctl to look for epollin|epollout events,
+don't I have the same problem?
+
+You do that by writing data until it's finished, or you get EAGAIN. If you
+get EAGAIN, you listen for EPOLLOUT.
+Reading is same, but you'd wait for EPOLLIN.
+
+上面这段话给出了如何使用 epoll ，那就是ATM （异步模式），读和写分开在不同的时间，交替进行。
+
+
+
+
+
+
+netstat -ant | grep EST | wc -l
+ss -o state established | wc -l
+http://www.ttlsa.com/linux-command/ss-replace-netstat/
+
+
+
+
+ConnMinTime:0 ConnMaxTime:998 ConnAvergeTime:5 ConnTotalTime:5099 ConnCount:1000
+
+
+
+阻塞连接
+>>reportStatus>>  acceptors:2000 accept_succ_count:2000 max_events:2
+>>reportStatus>>  pendings:0 conns1:2000 conn_succ_count:2000 max_events:1023
+
+>>reportStatus>> pendings:0 conns1:4000 conn_succ_count:4000 max_events:1023
+Finish All Connect 4000 26474
+ConnMinTime:0 ConnMaxTime:1000 ConnAvergeTime:6 ConnTotalTime:26474 ConnCount:4000
+
+
+
+非阻塞连接
+
+
+ConnMinTime:26 ConnMaxTime:1455 ConnAvergeTime:1046 ConnTotalTime:3207 ConnCount:4000
+>>reportStatus>> pendings:0 conns1:4001 conn_succ_count:4001 max_events:102
+
+>>reportStatus>>  acceptors:1899 accept_succ_count:1899 max_events:8
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

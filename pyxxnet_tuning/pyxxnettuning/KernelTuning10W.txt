@@ -1,0 +1,7 @@
+'user-level max-fds'	'ulimit -n'	102400
+'system-level max-fds'	'cat /proc/sys/fs/file-max'	2427958
+'epoll-event-max'	'cat /proc/sys/fs/epoll/max_user_watches'	5031034
+'listen-queue-size'	'cat /proc/sys/net/core/somaxconn'	10000
+'net.ipv4.ip_local_port_range '	'cat /proc/sys/net/ipv4/ip_local_port_range'	1024	65535
+'net.ipv4.tcp_timestamps'	'cat /proc/sys/net/ipv4/tcp_timestamps'	1
+'net.ipv4.tcp_tw_recycle'	'cat /proc/sys/net/ipv4/tcp_tw_recycle'	1

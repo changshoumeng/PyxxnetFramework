@@ -1,0 +1,31 @@
+[my machine info]
+Linux version 4.2.0-35-generic (buildd@lgw01-58) (gcc version 4.8.2 (Ubuntu 4.8.2-19ubuntu1) ) #40~14.04.1-Ubuntu SMP Fri Mar 18 16:37:35 UTC 2016
+{"A":"cpuinfo","cpu_count":12,"cpu_cores":"6","model_name":["Intel(R) Core(TM) i7-5820K CPU @ 3.30GHz"],"cpu_mhz":["1211.074","1200.632","1200.117","1280.554","1288.933","1382.261","1199.988"],"cache_size":["15360 KB"],"cache_alignment":["64"],"address_size":["46 bits physical, 48 bits virtual"]}
+{"MemTotal":"24587868 kB","MemFree":"410440 kB","Shmem":"152 kB"}
+===================================
+
+[Linux Kernel]
+'realsocketbufsize'	'sendbufsize:recvbufsize'	4608 425984 2304 425984
+'open files'	'ulimit -n'	102400
+'core file size'	'ulimit -c'	0
+'max user processes'	'ulimit -u'	status=512 result=sh: 1: ulimit: Illegal option -u
+'max memory size'	'ulimit -u'	status=512 result=sh: 1: ulimit: Illegal option -u
+'fs.file-max'	'cat /proc/sys/fs/file-max'	2427958
+'epoll-event-max'	'cat /proc/sys/fs/epoll/max_user_watches'	5031034
+'listen-queue-size'	'cat /proc/sys/net/core/somaxconn'	4000
+'ipv4.tcp_max_syn_backlog'	'cat /proc/sys/net/ipv4/tcp_max_syn_backlog'	1024
+'net.core.rmem_default'	'cat /proc/sys/net/core/rmem_default'	212992
+'net.core.wmem_default'	'cat /proc/sys/net/core/wmem_default'	212992
+'net.core.rmem_max'	'cat /proc/sys/net/core/rmem_max'	212992
+'net.core.wmem_max'	'cat /proc/sys/net/core/wmem_max '	212992
+'net.ipv4.tcp_rmem'	'cat /proc/sys/net/ipv4/tcp_rmem'	5000	80000	6000000
+'net.ipv4.tcp_wmem'	'cat /proc/sys/net/ipv4/tcp_wmem'	4096	16384	4194304
+'net.ipv4.tcp_mem'	'cat /proc/sys/net/ipv4/tcp_mem'	286689	382254	573378
+'net.ipv4.ip_local_port_range '	'cat /proc/sys/net/ipv4/ip_local_port_range'	1024	65535
+'net.ipv4.tcp_timestamps'	'cat /proc/sys/net/ipv4/tcp_timestamps'	1
+'net.ipv4.tcp_tw_recycle'	'cat /proc/sys/net/ipv4/tcp_tw_recycle'	1
+===================================
+
+[suggest_list 0]
+===================================
+
