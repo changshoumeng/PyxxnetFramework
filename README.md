@@ -16,8 +16,9 @@ This is a pure python implementation of network services development framework.
         pyxxnet3在python 2.7以上 或者python 3.x的版本，都得到顺利运行。后续将补充一些可视化的管理后台，与对比测试，
     优化。
 
-        如何使用这个网络库？
-        最简单的例子，是参照：sample_echoserver下的代码，大部分的网络服务的实现都与sample_echoserver代码相似，或者说，
+        如何使用这个网络库？
+        
+        最简单的方法，是参照例子：sample_echoserver下的代码，大部分的网络服务的实现都与sample_echoserver代码相似，或者说，
     你可以选择直接把sample_echoserver复制一份，基于此做开发。
 
         就是这样的简单。
@@ -27,6 +28,8 @@ This is a pure python implementation of network services development framework.
         python my_test.py 就开启了一个测试客户端，快来尝试下这个项目吧！
 
         我更期望您直接与我联系，一起探讨有趣的python编程。联系的QQ 406878851，关注C10M问题，更关心Python的变现。
+        
+        https://github.com/changshoumeng/pyxxnet_project.git
 
 
 
