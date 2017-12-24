@@ -12,6 +12,9 @@ This is a pure python implementation of network services development framework.
 
         本服务的网络库叫做pyxxnet3，位于pyxxnet_lib目录下，你可以执行python setup.py install 使得它安装于python
     的sitepackage目录下，或者你可以直接把pyxxnet3目录拷贝到你的工程目录下。
+    
+        pyxxnet3在python 2.7以上 或者python 3.x的版本，都得到顺利运行。后续将补充一些可视化的管理后台，与对比测试，
+    优化。
 
         如何使用这个网络库？
         最简单的例子，是参照：sample_echoserver下的代码，大部分的网络服务的实现都与sample_echoserver代码相似，或者说，
