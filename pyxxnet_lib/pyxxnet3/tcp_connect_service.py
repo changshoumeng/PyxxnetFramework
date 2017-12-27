@@ -43,9 +43,12 @@ class TcpConnectServiceInterface(ServerInterface):
         raise NotImplementedError()
 
 
+'''基于TCP的连接服务，负责主动去连接远程服务器'''
 class TcpConnectService(TcpConnectServiceInterface):
     # @listen_addr_list  [(ip,port,which),]
-    def __init__(self, connect_addr_list=[], connect_event_loop=SelectLoop(),
+    def __init__(self,
+                 connect_addr_list=[],
+                 connect_event_loop=SelectLoop(),
                  connect_event_handler=TcpConnectEventHandler()):
         self._connect_addr_list = connect_addr_list
         self._event_loop = connect_event_loop
@@ -113,16 +116,21 @@ class TcpConnectService(TcpConnectServiceInterface):
                     wlist.append(fileno)
         return rlist, wlist, xlist
 
+    '''触发一个定时器事件,完成一些定时JOBS'''
     def _triggerTimerEvent(self):
         n = core_utils.get_timestamp()
         if n > self._last_timestamp + core_param.MAX_TIMEOUT_INTVAL:
             self._last_timestamp = n
+
+            #处理忙连接，让其连接
             for connector in list(self._pending_connector_dict.values()):
                 if not connector:
                     continue
                 if not connector.can_connect():
                     continue
                 self._buildConnection(connector)
+
+            #处理无效连接，让其释放，这里做的是延时释放
             for fileno, connector in self._connector_dict.items():
                 connector.on_timer_event()
                 if connector.is_loselive():
@@ -224,16 +232,20 @@ class TcpConnectService(TcpConnectServiceInterface):
             connector.close()
         self._invalid_connectorfd_set.clear()
 
+    '''建立连接，完成三次握手'''
     def _buildConnection(self, connector, is_block_connect=False):
         if not self._is_connectable:
             netLogger.debug("not_connectable")
             connector.prepare_next_connect(5)
             core_utils.wait(5)
             return False
+
+        #这里才赋予了连接器一个连接句柄
         connector.reset_connect_status()
         connect_addr = connector.client_addr
         connect_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         connector.client_socket = connect_socket
+
         try:
             if not is_block_connect:
                 connect_socket.setblocking(False)

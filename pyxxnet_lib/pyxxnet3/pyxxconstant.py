@@ -39,7 +39,8 @@ class CONNECT_TYPE(object):
 
 
 class LIVE_STATUS(object):
-    LIVE_STATUS_BEGIN = 0x00
-    LIVE_STATUS_KEEPLIVE = 0x01
+    LIVE_STATUS_BEGIN = 0x00 #第一次connect，连接成功了的状态；或者，第一次accept一个会话时的状态。
+    LIVE_STATUS_KEEPLIVE = 0x01 #周期性触发的包；或者收到客户端周期性心跳包触发
     LIVE_STATUS_REPAIR = 0x02
-    LIVE_STATUS_END = 0x03
+    LIVE_STATUS_END = 0x03  #连接被kill了
+    LIVE_STATUS_FAILED=0x04 #第一次connect就失败了

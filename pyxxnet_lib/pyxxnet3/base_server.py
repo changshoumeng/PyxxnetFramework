@@ -22,6 +22,7 @@ from .main_loop import *
 from .io_handler import *
 from .event_loop import *
 from . import core_status
+from . import pyxxconstant
 from .public_server_callback import ServerCallback
 from . import core_utils
 import os
@@ -63,7 +64,7 @@ class ServerTaskMsgQueue(FeedbackLikeMessageQueue):
     def on_rsp(self, m):
         PARAM.appcore_interface.task_on_rsp(m.session_uid, m.session_data)
 
-
+'''定义一个会话监听器，可以创建会话对象'''
 class TcpListenEventHandler(object):
     def onTcpSessionCreate(self, sessionid=0, client_socket=None, connect_addr=(), which=0):
         return Session(sessionid, client_socket, connect_addr, which)
@@ -72,7 +73,7 @@ class TcpListenEventHandler(object):
         pass
         # raise NotImplementedError()
 
-
+'''定义一个会话，包装连接过来的客户'''
 class Session(SessionABC):
     def unpack_frombuffer(self, buffer):
         return PARAM.appcore_interface.session_unpack_frombuffer(self, buffer)
@@ -92,10 +93,9 @@ class Session(SessionABC):
         return "Session(id:{0} fd:{1} which:{2})".format(self.client_session_id, self.client_socket.fileno(),
                                                          self.which)
 
-
+'''定义一个构造终端的事件句柄'''
 class TcpConnectEventHandler(object):
     def onTcpEndpointCreate(self, sessionid=0, client_socket=None, connect_addr=(), which=0):
-        # print "connection create:",sessionid,connect_addr,which
         ep = Endpoint(sessionid, client_socket, connect_addr, which)
         if which not in PARAM.endpoint_dict:
             PARAM.endpoint_dict[which] = [ep]
@@ -108,6 +108,7 @@ class TcpConnectEventHandler(object):
         # print "connection release"
 
 
+'''定义一个终端'''
 class Endpoint(EndpointABC):
     # @client_session_id int,invalid if client_session_id<=0
     # @connect_socket socket object
@@ -120,10 +121,6 @@ class Endpoint(EndpointABC):
 
     def on_connect_event(self, isOK=True):
         super(Endpoint, self).on_connect_event(isOK)
-        if isOK:
-            PARAM.appcore_interface.endpoint_keeplive(self, 0)
-        else:
-            PARAM.appcore_interface.endpoint_keeplive(self, 1)
 
     def unpack_frombuffer(self, buffer):
         return PARAM.appcore_interface.endpoint_unpack_frombuffer(self, buffer)
@@ -134,9 +131,7 @@ class Endpoint(EndpointABC):
     def keeplive(self, keepstatus=LIVE_STATUS.LIVE_STATUS_END):
         return PARAM.appcore_interface.endpoint_keeplive(self, keepstatus)
 
-    def __str__(self):
-        return "Endpoint(id:{0} fd:{1} which:{2})".format(self.client_session_id, self.client_socket.fileno(),
-                                                          self.which)
+
 
 
 class WorkerHandler(object):

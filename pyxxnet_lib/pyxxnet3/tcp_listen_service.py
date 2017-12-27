@@ -183,6 +183,7 @@ class TcpListenService(TcpListenServiceInterface):
                 core_status.max_socket_fileno = client_socket.fileno()
                 self._addTcpAcceptor(acceptor.client_socket.fileno(), acceptor)
                 accept_count += 1
+                acceptor.keeplive(LIVE_STATUS.LIVE_STATUS_BEGIN)
             except socket.error as  e:
                 if e.errno in BUSYING_STATUS:
                     if accept_count > core_status.max_doaccept_count:

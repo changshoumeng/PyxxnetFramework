@@ -92,8 +92,23 @@ class TcpIoHandler(TcpIoHandlerInterface):
         self.send_bytes = 0
         self.recv_bytes = 0
         self.which = which
+
+
+    def __str__(self):
+        sessionid=self.get_session_uid() if self.client_socket else (0,0)
         if self.connection_type == CONNECT_TYPE.IS_ACCEPTOR:
-            self.keeplive(LIVE_STATUS.LIVE_STATUS_BEGIN)
+            s = 'Acceptor<sid:{0} addr:{1} stat:{2} which:{3}>'.format(
+                sessionid,
+                self.client_addr,
+                self.connect_status,
+                self.which)
+        else:
+            s = 'Connector<sid:{0} addr:{1} stat:{2} which:{3}>'.format(
+                sessionid,
+                self.client_addr,
+                self.connect_status,
+                self.which)
+        return s
 
     def close(self):
         netLogger.warning("session(%d) close;status:%d", self.client_session_id, self.connect_status)
@@ -357,7 +372,7 @@ class EndpointABC(TcpIoHandler):
             self.keeplive(LIVE_STATUS.LIVE_STATUS_BEGIN)
         else:
             self.keeplive(LIVE_STATUS.LIVE_STATUS_END)
-        netLogger.debug("on_connect_event() isOK=%d status:%d", isOK, self.connect_status)
+        netLogger.debug("on_connect_event() %s ", self)
         pass
 
     def is_connecting(self):
