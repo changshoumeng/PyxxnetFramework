@@ -34,7 +34,10 @@ class APP_CORE_HANDLER(public_server_callback.ServerCallback):
 
     @staticmethod
     def listenconfig_get(key=""):  # 10.10.2.143
-        c = {"addresslist": [("0.0.0.0", 8303, 0)], "eventloop": "select", }
+        c = {"addresslist": [("0.0.0.0", 8303, 0)], "eventloop": "epoll", }
+        for i in range(1000):
+            addr=("0.0.0.0", 9000+i, i)
+            c["addresslist"].append(addr )
         return c[key]
 
     @staticmethod
@@ -62,7 +65,7 @@ class APP_CORE_HANDLER(public_server_callback.ServerCallback):
     @staticmethod
     def session_dispatch_packet(session, packet_cmd, packet_data):
         # print("session_dispatch_packet:", session, packet_cmd,packet_data)
-        if packet_cmd == 1:
+        if packet_cmd == 0:
             session.send(packet_data)
             return
         process_packet.session_dispatch_packet(session, packet_cmd, packet_data)

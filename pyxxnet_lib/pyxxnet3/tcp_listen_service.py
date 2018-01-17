@@ -129,11 +129,15 @@ class TcpListenService(TcpListenServiceInterface):
                     wlist.append(fileno)
         return rlist, wlist, xlist
 
+    def _printstatus(self):
+        netLogger.info("<statusinfo> max_doaccept_count:%d max_notify_event_count:%d  fn:%d",core_status.max_doaccept_count,core_status.max_notify_event_count,core_status.max_socket_fileno)
+     
     # 定时事件触发器
     def _triggerTimerEvent(self):
         n = core_utils.get_timestamp()
         if n > self._last_timestamp + core_param.MAX_TIMEOUT_INTVAL:
             self._last_timestamp = n
+            self._printstatus()
             for fileno, acceptor in self._acceptor_dict.items():
                 acceptor.on_timer_event()
                 if acceptor.is_loselive():
@@ -166,6 +170,7 @@ class TcpListenService(TcpListenServiceInterface):
             netLogger.error("cannot find listen_socket;fd:%d", listen_fd)
             return
         accept_count = 0
+        
         while True:
             try:
                 client_socket, client_address = listen_socket.accept()
@@ -176,18 +181,18 @@ class TcpListenService(TcpListenServiceInterface):
                 session_id = self._session_id
                 self._session_id = session_id + 1
                 client_socket.setblocking(0)
-                acceptor = self._event_handler.onTcpSessionCreate(session_id, client_socket, client_address,
-                                                                  listener.which)
-                netLogger.info("session create:<%d,%d> <%s,%d> ", client_socket.fileno(), session_id,
-                               str(client_address), listener.which)
-                core_status.max_socket_fileno = client_socket.fileno()
+                acceptor = self._event_handler.onTcpSessionCreate(session_id, client_socket, client_address,listener.which)
+                if session_id%1000==1:
+                    netLogger.info("session create:<%d,%d> <%s,%d> conns:%d,", client_socket.fileno(), session_id, str(client_address), listener.which,len(self._acceptor_dict))
+                    self._printstatus()
+                    
+                core_status.max_socket_fileno = max( core_status.max_socket_fileno,  client_socket.fileno() )
                 self._addTcpAcceptor(acceptor.client_socket.fileno(), acceptor)
                 accept_count += 1
                 acceptor.keeplive(LIVE_STATUS.LIVE_STATUS_BEGIN)
             except socket.error as  e:
-                if e.errno in BUSYING_STATUS:
-                    if accept_count > core_status.max_doaccept_count:
-                        core_status.max_doaccept_count = accept_count
+                if e.errno in BUSYING_STATUS:                     
+                    core_status.max_doaccept_count=max(core_status.max_doaccept_count,accept_count )                
                     return True
                 else:
                     netLogger.critical("Accept Failed;Error:%s", repr(e))
@@ -231,12 +236,10 @@ class TcpListenService(TcpListenServiceInterface):
     def _addTcpAcceptor(self, acceptor_fd, acceptor):
         self._event_loop.register_io_event(acceptor_fd)
         self._acceptor_dict[acceptor_fd] = acceptor
-        netLogger.debug("addTcpAcceptor<%d,%d>conns:%d addr:%s", acceptor_fd, acceptor.client_session_id,
-                        len(self._acceptor_dict), str(acceptor.client_addr))
+        #netLogger.debug("addTcpAcceptor<%d,%d>conns:%d addr:%s", acceptor_fd, acceptor.client_session_id, len(self._acceptor_dict), str(acceptor.client_addr))
 
     def _delTcpAcceptor(self, acceptor_fd, acceptor):
         if acceptor_fd in self._acceptor_dict:
             self._event_loop.unregister(acceptor_fd)
-            netLogger.debug("delTcpAcceptor<%d,%d>conns:%d addr:%s", acceptor_fd, acceptor.client_session_id,
-                            len(self._acceptor_dict), str(acceptor.client_addr))
+            #netLogger.debug("delTcpAcceptor<%d,%d>conns:%d addr:%s", acceptor_fd, acceptor.client_session_id, len(self._acceptor_dict), str(acceptor.client_addr))
             del self._acceptor_dict[acceptor_fd]

@@ -34,7 +34,7 @@ def main():
     print_version()
     public_server_interface.server_init(app_core_handler.APP_CORE_HANDLER)
     check_argv()
-    public_server_interface.server_startAsForver(timeout=0.1)
+    public_server_interface.server_startAsForver(timeout=0.001)
 
 
 if __name__ == '__main__':

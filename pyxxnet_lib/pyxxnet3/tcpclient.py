@@ -13,7 +13,6 @@ socket.setdefaulttimeout(5)
 def prob1(ip, port):
     addr = (ip, port)
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     print("socket() fileno:{0}".format(s.fileno()))
     print("connect() addr:{0} ... ...".format(addr))
     t1 = core_utils.get_tick_count()

@@ -37,10 +37,10 @@ class FeedbackLikeMessageQueue(object):
     def push_task(self, m):
         qsize = self.mp_message_queue.qsize()
         if qsize >= core_param.MAX_CUSUMER_PIPE_REFUSE_QSIZE:
-            statuslogger.critical("push_task error;full;qsize is %d;msgid is %d", qsize, m.msg_id)
+            statuslogger.critical("push_task error;full;qsize is %d;msgid is %d", qsize, self.msgid )
             return
         if qsize >= core_param.MAX_CUSUMER_PIPE_WARNING_QSIZE:
-            statuslogger.critical("push_task warning;qsize is %d", qsize)
+            statuslogger.critical("push_task warning;qsize is %d;msgid id %d", qsize,self.msgid)
 
         m.msg_id = self.msgid
         self.msgid += 1

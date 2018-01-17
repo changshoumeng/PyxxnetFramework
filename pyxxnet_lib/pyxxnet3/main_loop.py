@@ -86,7 +86,8 @@ class InterruptableTaskLoop(object):
 
     # wait for a while
     def _wait(self):
-        InterruptableTaskLoop.wait(self.timeout)
+        if self.timeout != 0:
+            InterruptableTaskLoop.wait(self.timeout)
 
     def _tryonce(self):
         try:
