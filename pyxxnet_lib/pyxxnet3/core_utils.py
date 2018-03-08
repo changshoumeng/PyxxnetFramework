@@ -48,8 +48,8 @@ def is_python3():
 
 # 毫秒级别时间戳
 def get_tick_count():
-    t = time.time() * 1000
-    return int(t)
+    current_time=time.time()
+    return int(round(current_time * 1000))
 
 
 # 秒级别的时间戳
@@ -157,7 +157,7 @@ def calculate_size(s=""):
     a = 0
     for ch in s:
         if ch not in type_dic:
-            print "cannot find type:", ch
+            print ("cannot find type:{0}".format( ch)    )
             return
         a += type_dic[ch]
     return a
