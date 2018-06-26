@@ -39,9 +39,9 @@ def showTips():
     try:
         port = int(sys.argv[1])
     except Exception, e:
-        port = 8080
+        port = 4345
 
-    if not 1024 < port < 65535: port = 8080
+    if not 1024 < port < 65535: port = 4345
     # serveraddr = ('', port)
     print '-------->> Now, listening at port ' + str(port) + ' ...'
     osType = platform.system()
