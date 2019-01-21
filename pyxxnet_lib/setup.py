@@ -11,7 +11,7 @@ from setuptools import setup
 setup(
     name="pyxxnet",  #pypi中的名称，pip或者easy_install安装时使用的名称
     version="1.0",
-    author="Zhang Tao",
+    author="Tazzhang",
     author_email="406878851@qq.com",
     description=("This is a framework of network programming"),
     license="GPLv3",
